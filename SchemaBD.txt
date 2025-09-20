@@ -1,0 +1,253 @@
+// prisma/schema.prisma
+// Base de datos para plataforma Con Tribu Ir
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Modelo principal de usuarios
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  avatar    String?
+  role      UserRole @default(STUDENT)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  mentorProfile  MentorProfile?
+  studentProfile StudentProfile?
+  courses        Course[]       @relation("CourseCreator")
+  enrollments    Enrollment[]
+  payments       Payment[]
+  reviews        Review[]
+  sessions       Session[]
+
+  @@map("users")
+}
+
+// Perfil específico para mentores
+model MentorProfile {
+  id            String  @id @default(cuid())
+  userId        String  @unique
+  bio           String?
+  expertise     String[]
+  commission    Float   @default(0.70) // 70% para el mentor
+  totalEarnings Float   @default(0)
+  isVerified    Boolean @default(false)
+  bankAccount   String? // Para transferencias
+  rut           String? // RUT para facturación
+  
+  // Métricas
+  totalStudents Int @default(0)
+  avgRating     Float @default(0)
+  totalSales    Float @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("mentor_profiles")
+}
+
+// Perfil para estudiantes
+model StudentProfile {
+  id              String @id @default(cuid())
+  userId          String @unique
+  totalCourses    Int    @default(0)
+  completedCourses Int   @default(0)
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("student_profiles")
+}
+
+// Cursos
+model Course {
+  id           String       @id @default(cuid())
+  title        String
+  description  String
+  shortDesc    String?      // Descripción corta para cards
+  price        Float
+  originalPrice Float?      // Para mostrar descuentos
+  thumbnail    String?
+  status       CourseStatus @default(DRAFT)
+  category     String?
+  level        CourseLevel  @default(BEGINNER)
+  duration     Int?         // duración total en minutos
+  language     String       @default("es")
+  
+  // Métricas
+  studentsCount Int   @default(0)
+  avgRating     Float @default(0)
+  totalRating   Int   @default(0)
+  
+  // Meta información
+  creatorId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  creator     User         @relation("CourseCreator", fields: [creatorId], references: [id])
+  lessons     Lesson[]
+  enrollments Enrollment[]
+  payments    Payment[]
+  reviews     Review[]
+
+  @@map("courses")
+}
+
+// Lecciones de cursos
+model Lesson {
+  id          String      @id @default(cuid())
+  courseId    String
+  title       String
+  description String?
+  videoUrl    String?
+  duration    Int?        // duración en segundos
+  order       Int
+  isPreview   Boolean     @default(false) // Lección gratuita para preview
+  status      LessonStatus @default(DRAFT)
+  
+  // Contenido adicional
+  materials   String[]    // URLs de materiales complementarios
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  progress LessonProgress[]
+
+  @@map("lessons")
+}
+
+// Progreso de lecciones por estudiante
+model LessonProgress {
+  id         String @id @default(cuid())
+  userId     String
+  lessonId   String
+  completed  Boolean @default(false)
+  watchTime  Int     @default(0) // tiempo visto en segundos
+  completedAt DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@map("lesson_progress")
+}
+
+// Inscripciones a cursos
+model Enrollment {
+  id        String   @id @default(cuid())
+  userId    String
+  courseId  String
+  progress  Float    @default(0) // 0-100
+  isCompleted Boolean @default(false)
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id])
+  course Course @relation(fields: [courseId], references: [id])
+
+  @@unique([userId, courseId])
+  @@map("enrollments")
+}
+
+// Pagos usando Flow
+model Payment {
+  id              String        @id @default(cuid())
+  userId          String
+  courseId        String
+  amount          Float
+  mentorAmount    Float         // Cantidad para el mentor
+  platformAmount  Float         // Cantidad para la plataforma
+  
+  // Información de Flow
+  flowToken       String        @unique
+  flowOrder       String?
+  flowStatus      String?
+  
+  status          PaymentStatus @default(PENDING)
+  paymentMethod   String?       // tarjeta, transferencia, etc.
+  
+  createdAt       DateTime      @default(now())
+  confirmedAt     DateTime?
+
+  user   User   @relation(fields: [userId], references: [id])
+  course Course @relation(fields: [courseId], references: [id])
+
+  @@map("payments")
+}
+
+// Reviews y calificaciones
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  courseId  String
+  rating    Int      // 1-5 estrellas
+  comment   String?
+  isPublic  Boolean  @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id])
+  course Course @relation(fields: [courseId], references: [id])
+
+  @@unique([userId, courseId])
+  @@map("reviews")
+}
+
+// Sesiones de autenticación (NextAuth)
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// Enums
+enum UserRole {
+  STUDENT
+  MENTOR
+  ADMIN
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CourseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum LessonStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
